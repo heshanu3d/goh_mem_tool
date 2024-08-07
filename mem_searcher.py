@@ -1,4 +1,4 @@
-import struct, sys, os, keyboard, re, time, yaml
+import struct, sys, os, keyboard, re, time, yaml, signal
 
 def read_uint32_from_file(file_path, offset):
     with open(file_path, 'rb') as file:
@@ -34,6 +34,10 @@ def load_code():
         #print(k, v)
     return data
 
+def signal_handler(sig, frame):
+    sys.exit(0)
+
+
 if __name__ == "__main__":    
     args = sys.argv
     if len(args) != 2:
@@ -45,6 +49,8 @@ if __name__ == "__main__":
         exit(1)
 
     code =load_code()
+    signal.signal(signal.SIGINT, signal_handler)
+
     file_path = '' # 'com.goplaytoday.guildofheroes-76ce074000-76cf074000.bin'
     bin_files = find_bin_files('.')
     if len(bin_files) == 0:
@@ -103,6 +109,7 @@ if __name__ == "__main__":
         print('    rd/read: 读取指定地址')
         print('    q: 退出')
         while True:
+            print('#interact> ', end='')
             user_input = input()
             user_input = user_input.strip()
             if user_input == 'q':
@@ -186,8 +193,9 @@ if __name__ == "__main__":
                 print('多重条件查找:')
                 print('    type=3 if seq=2: seq=2且type=2的条目')
                 print('    cnt=2 if type>1000: cnt=2且type>1000的条目')
-        elif   bool(re.match('^\s*(seq|cnt|type)=([0-9]+)\s*(if\s+(seq|cnt|type)([<=>])([0-9]+))*$', user_input)):
-            res = re.findall('^\s*(seq|cnt|type)=([0-9]+)\s*(if\s+(seq|cnt|type)([<=>])([0-9]+))*$', user_input)
+                print('    seq<1000 if info!=unknown: seq<1000且info已知的条目')
+        elif   bool(re.match('^\s*(seq|cnt|type)([<=>!]+)([0-9]+)\s*(if\s+(seq|cnt|type|info)([<=>!]+)([\d\w\u4e00-\u9fa5\-_]+))*$', user_input)):
+            res = re.findall('^\s*(seq|cnt|type)([<=>!]+)([0-9]+)\s*(if\s+(seq|cnt|type|info)([<=>!]+)([\d\w\u4e00-\u9fa5\-_]+))*$', user_input)
             if len(res) > 0:
                 condition = False
                 res = res[0]
@@ -197,8 +205,10 @@ if __name__ == "__main__":
                 #('seq', '2', 'if type=2', 'type', '=', '2')
                 #     0,   1,           2,      3,   4,   5
                 action = res[0]
-                val = int(res[1])
-                if res[2] != '':
+                operations = { '<': lambda x, y: x < y, '=': lambda x, y: x == y, '>': lambda x, y: x > y, '!=': lambda x,y : x != y}
+                cmp_1  = res[1]
+                val = int(res[2])
+                if res[3] != '':
                     condition = True
                 _offset = offset
                 if action == 'seq':
@@ -210,24 +220,18 @@ if __name__ == "__main__":
                 while True:
                     try:
                         v = read_uint32_from_file(file_path, _offset + ofs)
-                        if v == val:
+                        if operations[cmp_1](v, val):
                             s, c, t = read_gamedata(_offset)
                             if condition:
-                                cond = {'seq':s, 'cnt':c, 'type':t}
-                                cmp = res[4]
-                                cond_v = int(res[5])
+                                cond = {'seq':s, 'cnt':c, 'type':t, 'info':code[t] if t in code.keys() else 'unknown'}
+                                cmp_2 = res[5]
+                                if res[4] == 'info':
+                                    cond_v = res[6]
+                                else:
+                                    cond_v = int(res[6])
                                 out = False
-                                operations = { '<': lambda x, y: x < y, '=': lambda x, y: x == y, '>': lambda x, y: x > y}
-                                if operations[cmp](cond[res[3]], cond_v):
+                                if operations[cmp_2](cond[res[4]], cond_v):
                                     print_list.append(PrintFunc(s, c, t, _offset, True if forwards else False))
-                                #if cmp == '<' and cond[res[3]] < cond_v:
-                                #    out = True
-                                #if cmp == '=' and cond[res[3]] == cond_v:
-                                #    out = True
-                                #if cmp == '>' and cond[res[3]] > cond_v:
-                                #    out = True
-                                #if out:
-                                #    PrintFunc(s, c, t, _offset)
                             else:
                                 print_list.append(PrintFunc(s, c, t, _offset, True if forwards else False))
                         if forwards:
@@ -253,6 +257,7 @@ if __name__ == "__main__":
         print('    type=3: 查找type=2的条目')
         print('    q: 退出')
         while True:
+            print('#search> ', end='')
             user_input = input()
             user_input = user_input.strip()
             search(user_input, False)
@@ -261,14 +266,30 @@ if __name__ == "__main__":
                 return
     def dumpmode():
         print('dumping...')
-        pass
+        print('    h/help : 帮助')
+        print('    q: 退出')
+        while True:
+            print('#dump> ', end='')
+            user_input = input()
+            user_input = user_input.strip()
+            if user_input == 'q':
+                return
+            elif user_input == 'help' or user_input == 'h':
+                print('not ready yet')
+            elif user_input == '':
+                pass
+    tips = True
     while True:
-        print('请选择模式:')
-        print('    i:  交互模式')
-        print('    f:  快速模式')
-        print('    d:  dump模式')
-        print('    s:  查找模式')
-        print('    q:  退出')
+        if tips:
+            print('请选择模式:')
+            print('    i:  交互模式')
+            print('    f:  快速模式')
+            print('    d:  dump模式')
+            print('    s:  查找模式')
+            print('    q:  退出')
+        else:
+            tips = True
+        print('#root> select mode and enter: ', end='')
         user_input = input()
         user_input = user_input.strip()
         if user_input == 'q':
@@ -281,3 +302,5 @@ if __name__ == "__main__":
             dumpmode()
         elif user_input == 's':
             searchmode()
+        else:
+            tips = False
